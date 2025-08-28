@@ -1,0 +1,9 @@
+Flask==3.0.3
+Flask-PyMongo==2.3.0
+Flask-Bcrypt==1.0.1
+Flask-JWT-Extended==4.6.0
+pymongo==4.8.0
+Werkzeug==3.0.4
+dnspython==2.6.1
+bycrypt
+
