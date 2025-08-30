@@ -1,9 +1,10 @@
+import os
 from pymongo import MongoClient
 
-MONGO_URI = "mongodb://localhost:27017/"
-DB_NAME = "apple_store"
+# MongoDB connection
+client = MongoClient("mongodb://localhost:27017/")
+db = client["apple_store"]
 
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
-
-JWT_SECRET_KEY = "super_secret_key"
+# Razorpay keys (replace with your own from https://dashboard.razorpay.com/)
+RAZORPAY_KEY_ID = "your_key_id"
+RAZORPAY_KEY_SECRET = "your_key_secret"

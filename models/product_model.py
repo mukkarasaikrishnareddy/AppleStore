@@ -1,16 +1,11 @@
 from config import db
 
-products = db.products
+products_collection = db["products"]
 
-def add_product(name, description, price, stock):
-    product = {
-        "name": name,
-        "description": description,
-        "price": price,
-        "stock": stock
-    }
-    products.insert_one(product)
-    return str(product["_id"])
+def add_product(name, price, stock):
+    product = {"name": name, "price": price, "stock": stock}
+    products_collection.insert_one(product)
+    return product
 
 def get_all_products():
-    return list(products.find({}))
+    return list(products_collection.find({}, {"_id": 0}))

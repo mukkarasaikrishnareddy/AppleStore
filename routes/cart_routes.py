@@ -1,29 +1,17 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from models.cart_model import add_to_cart, get_user_cart, clear_cart
+from models.cart_model import add_to_cart, get_cart
 
 cart_bp = Blueprint("cart", __name__)
 
 @cart_bp.route("/add", methods=["POST"])
-@jwt_required()
-def add_item():
+def add_cart():
     data = request.json
-    user_id = get_jwt_identity()
-    add_to_cart(user_id, data["product_id"], data["quantity"])
-    return jsonify({"message": "Item added to cart"}), 201
+    if not data or not data.get("user_id") or not data.get("product_id"):
+        return jsonify({"error": "Missing fields"}), 400
 
-@cart_bp.route("/", methods=["GET"])
-@jwt_required()
-def view_cart():
-    user_id = get_jwt_identity()
-    items = get_user_cart(user_id)
-    for item in items:
-        item["_id"] = str(item["_id"])
-    return jsonify(items), 200
+    cart_item = add_to_cart(data["user_id"], data["product_id"], data.get("quantity", 1))
+    return jsonify({"message": "Item added to cart", "cart": cart_item}), 201
 
-@cart_bp.route("/clear", methods=["DELETE"])
-@jwt_required()
-def clear():
-    user_id = get_jwt_identity()
-    clear_cart(user_id)
-    return jsonify({"message": "Cart cleared"}), 200
+@cart_bp.route("/<user_id>", methods=["GET"])
+def view_cart(user_id):
+    return jsonify(get_cart(user_id)), 200

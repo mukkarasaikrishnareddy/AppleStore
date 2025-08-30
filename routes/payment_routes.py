@@ -1,37 +1,98 @@
-import random
+import razorpay
 from flask import Blueprint, request, jsonify
+from config import db, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models.payment_model import create_payment
-from models.order_model import update_order_status
-from config import db
-from bson import ObjectId
-from datetime import datetime
+from bson.objectid import ObjectId
 
 payment_bp = Blueprint("payment", __name__)
 
-@payment_bp.route("/pay", methods=["POST"])
+# Initialize Razorpay client
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+# ===============================
+# 1. CREATE PAYMENT ORDER
+# ===============================
+@payment_bp.route("/create-order", methods=["POST"])
 @jwt_required()
-def make_payment():
-    user_id = get_jwt_identity()
-    data = request.json
-    order_id = data.get("order_id")
-    payment_method = data.get("payment_method", "card")
+def create_order():
+    try:
+        data = request.json
+        amount = data.get("amount")
 
-    order = db.orders.find_one({"_id": ObjectId(order_id), "user_id": ObjectId(user_id)})
-    if not order:
-        return jsonify({"error": "Order not found"}), 404
+        if not amount or amount <= 0:
+            return jsonify({"error": "Invalid amount"}), 400
 
-    if order.get("status") == "paid":
-        return jsonify({"error": "Order already paid"}), 400
+        # Create Razorpay order
+        order = razorpay_client.order.create({
+            "amount": amount * 100,  # Convert to paise
+            "currency": "INR",
+            "payment_capture": "1"
+        })
 
-    payment_success = random.choice([True, False])
-    payment_status = "success" if payment_success else "failed"
+        # Save order in DB
+        payment_data = {
+            "user_id": get_jwt_identity(),
+            "order_id": order["id"],
+            "amount": amount,
+            "status": "created"
+        }
+        db.payments.insert_one(payment_data)
 
-    create_payment(order_id, user_id, order["total_price"], payment_status, payment_method)
+        return jsonify({
+            "message": "Order created successfully",
+            "order": order
+        }), 201
 
-    if payment_success:
-        update_order_status(order_id, "paid")
-        return jsonify({"message": "Payment successful", "order_status": "paid"}), 200
-    else:
-        update_order_status(order_id, "payment_failed")
-        return jsonify({"message": "Payment failed", "order_status": "payment_failed"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===============================
+# 2. VERIFY PAYMENT
+# ===============================
+@payment_bp.route("/verify", methods=["POST"])
+@jwt_required()
+def verify_payment():
+    try:
+        data = request.json
+        order_id = data.get("order_id")
+        payment_id = data.get("payment_id")
+        signature = data.get("signature")
+
+        if not order_id or not payment_id or not signature:
+            return jsonify({"error": "Missing payment details"}), 400
+
+        # Verify payment signature
+        try:
+            razorpay_client.utility.verify_payment_signature({
+                "razorpay_order_id": order_id,
+                "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature
+            })
+        except:
+            return jsonify({"error": "Payment verification failed"}), 400
+
+        # Update payment status in DB
+        db.payments.update_one(
+            {"order_id": order_id},
+            {"$set": {"status": "paid", "payment_id": payment_id}}
+        )
+
+        return jsonify({"message": "Payment verified successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ===============================
+# 3. GET PAYMENT HISTORY
+# ===============================
+@payment_bp.route("/history", methods=["GET"])
+@jwt_required()
+def payment_history():
+    try:
+        user_id = get_jwt_identity()
+        payments = list(db.payments.find({"user_id": user_id}, {"_id": 0}))
+        return jsonify(payments), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
