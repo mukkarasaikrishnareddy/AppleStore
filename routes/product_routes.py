@@ -1,9 +1,11 @@
 from flask import Blueprint, request, jsonify
-from models.product_model import list_products, get_product, create_product, update_product, delete_product
+from flask_jwt_extended import jwt_required
 from utils.validators import require_fields
+from models.product_model import list_products, get_product, create_product, update_product, delete_product
 
 product_bp = Blueprint("products", __name__)
 
+# LIST PRODUCTS
 @product_bp.get("/")
 def list_all():
     q = request.args.get("q")
@@ -17,24 +19,29 @@ def list_all():
     items = list_products(skip=skip, limit=size, q=q)
     return jsonify({"items": items, "page": page, "size": size}), 200
 
+
+# GET ONE PRODUCT
 @product_bp.get("/<product_id>")
 def get_one(product_id):
     prod = get_product(product_id)
     if not prod:
         return jsonify({"error": "Not found"}), 404
     return jsonify(prod), 200
-
+# CREATE PRODUCT
 @product_bp.post("/")
+@jwt_required()
 def create_one():
     data = request.get_json(force=True, silent=False)
     try:
         require_fields(data, ["name", "price"])
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
     prod = create_product(data)
     return jsonify(prod), 201
-
+# UPDATE PRODUCT
 @product_bp.put("/<product_id>")
+@jwt_required()
 def update_one(product_id):
     data = request.get_json(force=True, silent=False)
     prod = update_product(product_id, data)
@@ -42,7 +49,10 @@ def update_one(product_id):
         return jsonify({"error": "Not found"}), 404
     return jsonify(prod), 200
 
+
+# DELETE PRODUCT
 @product_bp.delete("/<product_id>")
+@jwt_required()
 def delete_one(product_id):
     ok = delete_product(product_id)
     if not ok:

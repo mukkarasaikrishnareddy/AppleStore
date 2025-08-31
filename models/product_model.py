@@ -1,6 +1,8 @@
 from typing import List, Optional
 from bson.objectid import ObjectId
 from config import products_collection
+from pymongo import ReturnDocument
+
 
 def serialize_product(doc: Optional[dict]) -> Optional[dict]:
     if not doc:
@@ -15,7 +17,8 @@ def serialize_product(doc: Optional[dict]) -> Optional[dict]:
         "description": doc.get("description", "")
     }
 
-def list_products(skip=0, limit=20, q: str | None = None) -> List[dict]:
+
+def list_products(skip=0, limit=20, q: Optional[str] = None) -> List[dict]:
     query = {}
     if q:
         query = {"name": {"$regex": q, "$options": "i"}}
@@ -29,6 +32,7 @@ def get_product(product_id: str) -> Optional[dict]:
         return None
     return serialize_product(doc)
 
+
 def create_product(data: dict) -> dict:
     doc = {
         "name": data["name"],
@@ -41,14 +45,9 @@ def create_product(data: dict) -> dict:
     res = products_collection.insert_one(doc)
     doc["_id"] = res.inserted_id
     return serialize_product(doc)
-
 def update_product(product_id: str, data: dict) -> Optional[dict]:
-    update = {}
-    for field in ["name", "brand", "price", "stock", "category", "description"]:
-        if field in data:
-            update[field] = data[field]
+    update = {field: data[field] for field in ["name", "brand", "price", "stock", "category", "description"] if field in data}
     try:
-        from pymongo import ReturnDocument
         res = products_collection.find_one_and_update(
             {"_id": ObjectId(product_id)},
             {"$set": update},
