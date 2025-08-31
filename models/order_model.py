@@ -1,19 +1,27 @@
-from config import db
-from bson import ObjectId
-from datetime import datetime
+from config import orders_collection
+from bson.objectid import ObjectId
+from typing import List
 
-orders = db.orders
-
-def create_order(user_id, items, total_price):
+def create_order(user_id: str, items: List[dict], total_price: float, payment_status: str = "pending", razorpay_order_id: str = None) -> dict:
     order = {
-        "user_id": ObjectId(user_id),
+        "user_id": user_id,
         "items": items,
-        "total_price": total_price,
-        "status": "pending",
-        "created_at": datetime.utcnow()
+        "total_price": float(total_price),
+        "payment_status": payment_status,
+        "razorpay_order_id": razorpay_order_id
     }
-    orders.insert_one(order)
-    return str(order["_id"])
+    res = orders_collection.insert_one(order)
+    order["_id"] = str(res.inserted_id)
+    return order
 
-def update_order_status(order_id, status):
-    orders.update_one({"_id": ObjectId(order_id)}, {"$set": {"status": status}})
+def get_orders(user_id: str) -> list:
+    cursor = orders_collection.find({"user_id": user_id})
+    out = []
+    for o in cursor:
+        o["_id"] = str(o["_id"])
+        out.append(o)
+    return out
+
+def update_payment_status_by_razorpay(order_id: str, payment_status: str, payment_id: str = None):
+    orders_collection.update_one({"razorpay_order_id": order_id}, {"$set": {"payment_status": payment_status, "payment_id": payment_id}})
+    return orders_collection.find_one({"razorpay_order_id": order_id})

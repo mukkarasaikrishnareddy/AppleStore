@@ -1,34 +1,51 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token
-from models.user_model import create_user, find_user_by_email
-import bcrypt
+from models.user_model import create_user, find_user_by_email, check_password
+from utils.validators import require_fields
+from datetime import timedelta
 
 auth_bp = Blueprint("auth", __name__)
 
-# Register
-@auth_bp.route("/register", methods=["POST"])
+# ---------------- REGISTER ----------------
+@auth_bp.post("/register")
 def register():
-    data = request.json
-    if not data or not data.get("email") or not data.get("password"):
-        return jsonify({"error": "Missing email or password"}), 400
+    data = request.get_json(force=True, silent=False)
+    try:
+        require_fields(data, ["name", "email", "password"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     if find_user_by_email(data["email"]):
-        return jsonify({"error": "Email already registered"}), 400
+        return jsonify({"error": "Email already registered"}), 409
 
     user = create_user(data["name"], data["email"], data["password"])
-    return jsonify({"message": "User registered successfully"}), 201
+    access = create_access_token(identity=user["email"], expires_delta=timedelta(hours=12))
 
-# Login
-@auth_bp.route("/login", methods=["POST"])
+    return jsonify({"user": user, "access_token": access}), 201
+# ---------------- LOGIN ----------------
+@auth_bp.post("/login")
 def login():
-    data = request.json
-    user = find_user_by_email(data["email"])
+    data = request.get_json(force=True, silent=False)
+    try:
+        require_fields(data, ["email", "password"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    user_doc = find_user_by_email(data["email"])
+    if not user_doc:
+        return jsonify({"error": "Invalid email or password"}), 401
 
-    if not bcrypt.checkpw(data["password"].encode("utf-8"), user["password"]):
-        return jsonify({"error": "Invalid password"}), 401
+    if not check_password(data["password"], user_doc["password"]):
+        return jsonify({"error": "Invalid email or password"}), 401
 
-    token = create_access_token(identity=str(user["_id"]))
-    return jsonify({"token": token}), 200
+    # Build a clean user dict to return
+    user_safe = {
+        "id": str(user_doc["_id"]),
+        "name": user_doc["name"],
+        "email": user_doc["email"],
+        "role": user_doc.get("role", "customer")
+    }
+
+    access = create_access_token(identity=user_safe["email"], expires_delta=timedelta(hours=12))
+
+    return jsonify({"message": "Login successful", "user": user_safe, "access_token": access}), 200

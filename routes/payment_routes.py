@@ -1,98 +1,64 @@
-import razorpay
-from flask import Blueprint, request, jsonify
-from config import db, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from bson.objectid import ObjectId
+import razorpay
+from config import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+from models.payment_model import save_payment_record
+from models.order_model import update_payment_status_by_razorpay
+from utils.validators import require_fields
 
 payment_bp = Blueprint("payment", __name__)
 
-# Initialize Razorpay client
-razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+# initialize razorpay client
+rz_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
-# ===============================
-# 1. CREATE PAYMENT ORDER
-# ===============================
-@payment_bp.route("/create-order", methods=["POST"])
+@payment_bp.post("/create-order")
 @jwt_required()
 def create_order():
+    data = request.get_json(force=True, silent=False)
     try:
-        data = request.json
-        amount = data.get("amount")
+        amount = float(data.get("amount", 0))
+    except Exception:
+        return jsonify({"error": "Invalid amount"}), 400
 
-        if not amount or amount <= 0:
-            return jsonify({"error": "Invalid amount"}), 400
+    if amount <= 0:
+        return jsonify({"error": "Invalid amount"}), 400
 
-        # Create Razorpay order
-        order = razorpay_client.order.create({
-            "amount": amount * 100,  # Convert to paise
-            "currency": "INR",
-            "payment_capture": "1"
-        })
+    # Razorpay expects amount in paise
+    order = rz_client.order.create({
+        "amount": int(amount * 100),
+        "currency": data.get("currency", "INR"),
+        "payment_capture": 1
+    })
 
-        # Save order in DB
-        payment_data = {
-            "user_id": get_jwt_identity(),
-            "order_id": order["id"],
-            "amount": amount,
-            "status": "created"
-        }
-        db.payments.insert_one(payment_data)
+    # optionally store order mapping in payments or orders (razorpay_order_id)
+    user_email = get_jwt_identity()
+    save_payment_record(user_email, order["id"], amount, "created")
 
-        return jsonify({
-            "message": "Order created successfully",
-            "order": order
-        }), 201
+    return jsonify({"order": order}), 201
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ===============================
-# 2. VERIFY PAYMENT
-# ===============================
-@payment_bp.route("/verify", methods=["POST"])
+@payment_bp.post("/verify")
 @jwt_required()
 def verify_payment():
+    data = request.get_json(force=True, silent=False)
     try:
-        data = request.json
-        order_id = data.get("order_id")
-        payment_id = data.get("payment_id")
-        signature = data.get("signature")
+        require_fields(data, ["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
-        if not order_id or not payment_id or not signature:
-            return jsonify({"error": "Missing payment details"}), 400
+    payload = {
+        "razorpay_order_id": data["razorpay_order_id"],
+        "razorpay_payment_id": data["razorpay_payment_id"],
+        "razorpay_signature": data["razorpay_signature"]
+    }
 
-        # Verify payment signature
-        try:
-            razorpay_client.utility.verify_payment_signature({
-                "razorpay_order_id": order_id,
-                "razorpay_payment_id": payment_id,
-                "razorpay_signature": signature
-            })
-        except:
-            return jsonify({"error": "Payment verification failed"}), 400
-
-        # Update payment status in DB
-        db.payments.update_one(
-            {"order_id": order_id},
-            {"$set": {"status": "paid", "payment_id": payment_id}}
-        )
-
-        return jsonify({"message": "Payment verified successfully"}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ===============================
-# 3. GET PAYMENT HISTORY
-# ===============================
-@payment_bp.route("/history", methods=["GET"])
-@jwt_required()
-def payment_history():
     try:
-        user_id = get_jwt_identity()
-        payments = list(db.payments.find({"user_id": user_id}, {"_id": 0}))
-        return jsonify(payments), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        rz_client.utility.verify_payment_signature(payload)
+    except Exception:
+        return jsonify({"error": "Payment signature verification failed"}), 400
+
+    # update payment records and orders
+    user_email = get_jwt_identity()
+    save_payment_record(user_email, data["razorpay_order_id"], data.get("amount", 0), "paid", payment_id=data["razorpay_payment_id"])
+    update_payment_status_by_razorpay(data["razorpay_order_id"], "paid", payment_id=data["razorpay_payment_id"])
+
+    return jsonify({"message": "Payment verified successfully"}), 200

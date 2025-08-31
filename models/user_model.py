@@ -1,13 +1,37 @@
-from config import db
+from typing import Optional
+from config import users_collection
 import bcrypt
+from bson import ObjectId
 
-users_collection = db["users"]
+def hash_password(plain: str) -> bytes:
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt())
 
-def create_user(name, email, password):
-    hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-    user = {"name": name, "email": email, "password": hashed_pw}
-    users_collection.insert_one(user)
-    return user
+def check_password(plain: str, hashed: bytes) -> bool:
+    try:
+        if isinstance(hashed, str):
+            hashed = hashed.encode("utf-8")
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed)
+    except Exception:
+        return False
 
-def find_user_by_email(email):
-    return users_collection.find_one({"email": email})
+def find_user_by_email(email: str) -> Optional[dict]:
+    if not email:
+        return None
+    return users_collection.find_one({"email": email.lower()})
+def create_user(name: str, email: str, password: str) -> dict:
+    doc = {
+        "name": name,
+        "email": email.lower(),
+        "password": hash_password(password),
+        "role": "customer"
+    }
+    result = users_collection.insert_one(doc)
+
+    # Attach inserted ID and make sure it is JSON serializable
+    doc_copy = {
+        "id": str(result.inserted_id),  # convert ObjectId -> string
+        "name": name,
+        "email": email.lower(),
+        "role": "customer"
+    }
+    return doc_copy

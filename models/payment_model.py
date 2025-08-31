@@ -1,17 +1,12 @@
-from config import db
-from bson import ObjectId
-from datetime import datetime
+from config import payments_collection
 
-payments = db.payments
-
-def create_payment(order_id, user_id, amount, status, method):
-    payment = {
-        "order_id": ObjectId(order_id),
-        "user_id": ObjectId(user_id),
-        "amount": amount,
-        "status": status,
-        "payment_method": method,
-        "created_at": datetime.utcnow()
+def save_payment_record(user_id: str, razorpay_order_id: str, amount: float, status: str, payment_id: str = None):
+    rec = {
+        "user_id": user_id,
+        "razorpay_order_id": razorpay_order_id,
+        "payment_id": payment_id,
+        "amount": float(amount),
+        "status": status
     }
-    payments.insert_one(payment)
-    return str(payment["_id"])
+    payments_collection.insert_one(rec)
+    return rec

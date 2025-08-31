@@ -1,4 +1,4 @@
-from config import products_col
+from config import products_collection
 
 sample = [
     {"name": "iPhone 15 Pro", "brand": "Apple", "price": 1299.0, "stock": 20, "category": "phone", "description": "Titanium, A17"},
@@ -7,8 +7,8 @@ sample = [
     {"name": "AirPods Pro 2", "brand": "Apple", "price": 249.0, "stock": 50, "category": "audio", "description": "ANC, MagSafe"},
 ]
 
-if products_col.count_documents({}) == 0:
-    products_col.insert_many(sample)
+if products_collection.count_documents({}) == 0:
+    products_collection.insert_many(sample)
     print("✅ Seed data added!")
 else:
     print("Products already exist.")
